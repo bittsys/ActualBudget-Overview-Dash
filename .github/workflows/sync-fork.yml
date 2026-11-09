@@ -1,0 +1,41 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write          # required for the enable endpoint
+
+env:
+  WF_FILE: sync-fork.yml  # <- set this to THIS workflow's actual filename
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork via merge-upstream API
+        continue-on-error: true   # upstream may have nothing to merge, don't fail the job
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/merge-upstream \
+            -d '{"branch":"main"}'
+          echo
+
+      - name: Keepalive - re-enable workflow to reset 60-day timer
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/${{ github.repository }}"
+          STATUS=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X PUT \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API/actions/workflows/$WF_FILE/enable")
+          echo "HTTP status: $STATUS"
+          cat /tmp/resp.txt; echo
+          test "$STATUS" = "204"   # 204 No Content = success
