@@ -7,7 +7,8 @@ on:
 
 permissions:
   contents: write
-  actions: write          # required for the enable endpoint
+  actions: write      # required for the enable endpoint
+  workflows: write   # needed when the merge updates workflow files
 
 env:
   WF_FILE: sync-fork.yml  # <- set this to THIS workflow's actual filename
@@ -17,14 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Sync fork via merge-upstream API
-        continue-on-error: true   # upstream may have nothing to merge, don't fail the job
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -sS -X POST \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          STATUS=$(curl -sS -o /tmp/merge.json -w "%{http_code}" -X POST \
+            -f -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/merge-upstream \
-            -d '{"branch":"main"}'
-          echo
+            "https://api.github.com/repos/${{ github.repository }}/merge-upstream" \
+            -d '{"branch":"main"}' || true)
+          cat /tmp/merge.json; echo
+          case "$STATUS" in
+            200|201|204) echo "Sync OK" ;;
+            *)           echo "::error::merge-upstream failed (HTTP $STATUS)"; exit 1 ;;
+          esac
 
       - name: Keepalive - re-enable workflow to reset 60-day timer
         if: always()
